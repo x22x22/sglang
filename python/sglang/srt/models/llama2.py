@@ -318,6 +318,8 @@ class LlamaForCausalLM(nn.Module):
                     continue
                 param = params_dict[name]
                 weight_loader = param.weight_loader
+                print(loaded_weight.dtype)
+                exit()
                 weight_loader(param, loaded_weight, shard_id)
                 break
             else:

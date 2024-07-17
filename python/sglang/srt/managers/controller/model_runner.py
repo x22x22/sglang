@@ -12,7 +12,6 @@ import torch.nn as nn
 from vllm.config import DeviceConfig, LoadConfig
 from vllm.config import ModelConfig as VllmModelConfig
 from vllm.distributed import init_distributed_environment, initialize_model_parallel, get_tp_group
-from vllm.model_executor.model_loader import get_model
 from vllm.model_executor.models import ModelRegistry
 
 from sglang.global_config import global_config
@@ -123,6 +122,11 @@ class ModelRunner:
         self.dtype = vllm_model_config.dtype
         if self.model_config.model_overide_args is not None:
             vllm_model_config.hf_config.update(self.model_config.model_overide_args)
+
+        if "llama" in self.server_args.model_path.lower() and self.server_args.quantization == "fp8":
+            from sglang.srt.model_loader.model_loader import get_model
+        else:
+            from vllm.model_executor.model_loader import get_model
 
         self.model = get_model(
             model_config=vllm_model_config,
