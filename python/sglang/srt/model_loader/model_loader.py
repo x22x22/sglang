@@ -3,6 +3,7 @@
 
 import glob
 import os
+import re
 from typing import Any, Dict, Generator, List, Optional, Tuple, Type
 
 import torch
@@ -16,13 +17,13 @@ from vllm.model_executor.model_loader.utils import (
     get_model_architecture,
     set_default_torch_dtype,
 )
-from vllm.model_executor.model_loader.weight_utils import get_quant_config
 from vllm.platforms import current_platform
 
 from sglang.srt.model_loader.utils import (
     download_safetensors_index_file_from_hf,
     download_weights_from_hf,
     filter_duplicate_safetensors_files,
+    get_quant_config,
     safetensors_weights_iterator,
 )
 
@@ -72,9 +73,6 @@ def _initialize_model(model_config: ModelConfig, load_config: LoadConfig,
     """Initialize a model with the given configurations."""
     model_class = get_model_architecture(model_config)[0]
     quant_config = _get_quantization_config(model_config, load_config)
-    if model_config.quantization == "fp8":
-        # FIXME do not hardcode
-        quant_config.is_checkpoint_fp8_serialized = True
 
     return model_class(config=model_config.hf_config,
                        cache_config=cache_config,
@@ -184,15 +182,21 @@ class ModelLoader:
                 model = _initialize_model(model_config, self.load_config,
                                           lora_config, multimodal_config,
                                           cache_config)
-            model.load_weights(
-                self._get_weights_iterator(model_config.model,
-                                           model_config.revision,
-                                           fall_back_to_pt=getattr(
-                                               model,
-                                               "fall_back_to_pt_during_load",
-                                               True)), )
+            weights = self._get_weights_iterator(
+                model_config.model,
+                model_config.revision,
+                fall_back_to_pt=getattr(
+                    model,
+                    "fall_back_to_pt_during_load",
+                    True
+                )
+            )
 
-            for _, module in model.named_modules():
+            modules = {}
+            for name, module in model.named_modules():
+                modules[name] = module
+            
+            def apply_quant_method(module):
                 quant_method = getattr(module, "quant_method", None)
                 if quant_method is not None:
                     quant_method.process_weights_after_loading(module)
@@ -200,6 +204,14 @@ class ModelLoader:
                 # to use quant_method.
                 if hasattr(module, "process_weights_after_loading"):
                     module.process_weights_after_loading()
+            
+            for name, loaded_weight in weights:
+                print(name)
+                module_name = model.get_module_name(name)[:-len(".weight")]
+                # modules[module_name].to_empty(device="cuda")
+                model.load_weights(None, name, loaded_weight)
+                apply_quant_method(module)
+
         return model.eval()
 
 
