@@ -4,6 +4,7 @@
 import glob
 import os
 import re
+from tqdm import tqdm
 from typing import Any, Dict, Generator, List, Optional, Tuple, Type
 
 import torch
@@ -199,18 +200,28 @@ class ModelLoader:
             def apply_quant_method(module):
                 quant_method = getattr(module, "quant_method", None)
                 if quant_method is not None:
-                    print("before apply quant", module.weight, module.weight.dtype)
+                    # print("before apply quant", module.weight, module.weight.dtype)
                     quant_method.process_weights_after_loading(module)
                 # FIXME: Remove this after Mixtral is updated
                 # to use quant_method.
                 if hasattr(module, "process_weights_after_loading"):
                     module.process_weights_after_loading()
-            
+
+            if torch.cuda.current_device() == 0:
+                weights = tqdm(weights, total=model.get_num_params() * 1.5, desc="load model")
+
+            num_shard = {}
+            num_loaded = {}
             for name, loaded_weight in weights:
-                module_name = model.get_module_name(name)[:-len(".weight")]
                 model.load_weights(None, name, loaded_weight)
-                print("apply quant to", module_name)
-                apply_quant_method(modules[module_name])
+                module_name, shard_num = model.get_module_name(name)
+                num_shard[module_name] = shard_num
+                if module_name not in num_loaded:
+                    num_loaded[module_name] = 1
+                else:
+                    num_loaded[module_name] += 1
+                if num_loaded[module_name] == num_shard[module_name]:
+                    apply_quant_method(modules[module_name])
 
         return model.eval()
 

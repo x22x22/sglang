@@ -307,17 +307,21 @@ class LlamaForCausalLM(nn.Module):
 
     def get_module_name(self, name):
         stacked_params_mapping = [
-            # (param_name, shard_name, shard_id)
-            ("qkv_proj", "q_proj", "q"),
-            ("qkv_proj", "k_proj", "k"),
-            ("qkv_proj", "v_proj", "v"),
-            ("gate_up_proj", "gate_proj", 0),
-            ("gate_up_proj", "up_proj", 1),
+            # (param_name, shard_name, shard_id, num_shard)
+            ("qkv_proj", "q_proj", "q", 3),
+            ("qkv_proj", "k_proj", "k", 3),
+            ("qkv_proj", "v_proj", "v", 3),
+            ("gate_up_proj", "gate_proj", 0, 2),
+            ("gate_up_proj", "up_proj", 1, 2),
         ]
-        for param_name, weight_name, shard_id in stacked_params_mapping:
+        for param_name, weight_name, shard_id, num_shard in stacked_params_mapping:
             if weight_name in name:
-                return name.replace(weight_name, param_name)
-        return name
+                return name.replace(weight_name, param_name)[:-len(".weight")], num_shard
+        return name[:-len(".weight")], 1
+
+    def get_num_params(self):
+        params_dict = dict(self.named_parameters())
+        return len(params_dict)
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]], name=None, loaded_weight=None):
         stacked_params_mapping = [
@@ -348,9 +352,8 @@ class LlamaForCausalLM(nn.Module):
                     continue
                 param = params_dict[name]
                 weight_loader = param.weight_loader
-                print("param1", name, param.__class__.__name__)
                 weight_loader(param, loaded_weight, shard_id)
-                print("after load1", param.data, param.data.dtype)
+                # print("after load1", param.data, param.data.dtype)
                 break
             else:
                 # Skip loading extra bias for GPTQ models.
@@ -360,9 +363,8 @@ class LlamaForCausalLM(nn.Module):
                     return
                 param = params_dict[name]
                 weight_loader = getattr(param, "weight_loader", default_weight_loader)
-                print("param", name, param.__class__.__name__)
                 weight_loader(param, loaded_weight)
-                print("after load", param.data, param.data.dtype)
+                # print("after load", param.data, param.data.dtype)
 
         if name is None or loaded_weight is None:
             if get_tensor_model_parallel_rank() == 0:

@@ -294,6 +294,9 @@ class ColumnParallelLinear(LinearBase):
             self.register_parameter("bias", None)
 
     def weight_loader(self, param: Parameter, loaded_weight: torch.Tensor):
+        if param.data.dtype != loaded_weight.dtype:
+            param.data = torch.empty_like(param.data, dtype=loaded_weight.dtype, device="cuda")
+
         tp_rank = get_tensor_model_parallel_rank()
         output_dim = getattr(param, "output_dim", None)
         param_data = param.data
@@ -309,9 +312,7 @@ class ColumnParallelLinear(LinearBase):
             loaded_weight = loaded_weight.reshape(1)
 
         assert param_data.shape == loaded_weight.shape
-        if param.data.dtype != loaded_weight.dtype:
-            param.data = torch.empty_like(param.data, dtype=loaded_weight.dtype, device="cuda")
-        param.data.copy_(loaded_weight)
+        param_data.copy_(loaded_weight)
 
     def forward(self, input_):
         bias = self.bias if not self.skip_bias_add else None
@@ -380,6 +381,8 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
                       param: Parameter,
                       loaded_weight: torch.Tensor,
                       loaded_shard_id: Optional[int] = None):
+        if param.data.dtype != loaded_weight.dtype:
+            param.data = torch.empty_like(param.data, dtype=loaded_weight.dtype, device="cuda")
 
         param_data = param.data
         output_dim = getattr(param, "output_dim", None)
@@ -396,9 +399,7 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
                         param_data, loaded_weight, 0)
 
                 assert param_data.shape == loaded_weight.shape
-                if param.data.dtype != loaded_weight.dtype:
-                    param.data = torch.empty_like(param.data, dtype=loaded_weight.dtype, device="cuda")
-                param.data.copy_(loaded_weight)
+                param_data.copy_(loaded_weight)
                 return
             current_shard_offset = 0
             shard_offsets: List[Tuple[int, int, int]] = []
@@ -471,9 +472,7 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
                     "the same for all partitions.")
 
         assert param_data.shape == loaded_weight.shape
-        if param.data.dtype != loaded_weight.dtype:
-            param.data = torch.empty_like(param.data, dtype=loaded_weight.dtype, device="cuda")
-        param.data.copy_(loaded_weight)
+        param_data.copy_(loaded_weight)
 
 
 class QKVParallelLinear(ColumnParallelLinear):
@@ -546,6 +545,9 @@ class QKVParallelLinear(ColumnParallelLinear):
                       param: Parameter,
                       loaded_weight: torch.Tensor,
                       loaded_shard_id: Optional[str] = None):
+        if param.data.dtype != loaded_weight.dtype:
+            param.data = torch.empty_like(param.data, dtype=loaded_weight.dtype, device="cuda")
+ 
         param_data = param.data
         output_dim = getattr(param, "output_dim", None)
         # Special case for AQLM codebooks.
@@ -562,9 +564,7 @@ class QKVParallelLinear(ColumnParallelLinear):
                         param_data, loaded_weight, 0)
 
                 assert param_data.shape == loaded_weight.shape
-                if param.data.is_meta:
-                    param.data = torch.empty_like(param.data, dtype=loaded_weight.dtype, device="cuda")
-                param.data.copy_(loaded_weight)
+                param_data.copy_(loaded_weight)
                 return
             shard_offsets = [
                 # (shard_id, shard_offset, shard_size)
@@ -664,9 +664,7 @@ class QKVParallelLinear(ColumnParallelLinear):
                     "for all partitions.")
 
         assert param_data.shape == loaded_weight.shape
-        if param.data.dtype != loaded_weight.dtype:
-            param.data = torch.empty_like(param.data, dtype=loaded_weight.dtype, device="cuda")
-        param.data.copy_(loaded_weight)
+        param_data.copy_(loaded_weight)
 
 
 class RowParallelLinear(LinearBase):
@@ -737,6 +735,9 @@ class RowParallelLinear(LinearBase):
             self.register_parameter("bias", None)
 
     def weight_loader(self, param: Parameter, loaded_weight: torch.Tensor):
+        if param.data.dtype != loaded_weight.dtype:
+            param.data = torch.empty_like(param.data, dtype=loaded_weight.dtype, device="cuda")
+
         param_data = param.data
         tp_rank = get_tensor_model_parallel_rank()
         input_dim = getattr(param, "input_dim", None)
@@ -752,10 +753,7 @@ class RowParallelLinear(LinearBase):
             loaded_weight = loaded_weight.reshape(1)
 
         assert param_data.shape == loaded_weight.shape
-        print("param_data before load", param_data.dtype, loaded_weight.dtype)
-        if param.data.dtype != loaded_weight.dtype:
-            param.data = torch.empty_like(param.data, dtype=loaded_weight.dtype, device="cuda")
-        param.data.copy_(loaded_weight)
+        param_data.copy_(loaded_weight)
 
     def forward(self, input_):
         # Set up backprop all-reduce.
