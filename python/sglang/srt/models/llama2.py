@@ -272,7 +272,7 @@ class LlamaForCausalLM(nn.Module):
         global QKVParallelLinear
         global RowParallelLinear
 
-        if quant_config.get_name() == "fp8":
+        if quant_config is not None and quant_config.get_name() == "fp8":
             from sglang.srt.layers.linear import (
                 MergedColumnParallelLinear,
                 QKVParallelLinear,

@@ -202,6 +202,7 @@ class ModelLoader:
                 if quant_method is not None:
                     # print("before apply quant", module.weight, module.weight.dtype)
                     quant_method.process_weights_after_loading(module)
+                    # print("after apply quant", module.weight, module.weight.dtype)
                 # FIXME: Remove this after Mixtral is updated
                 # to use quant_method.
                 if hasattr(module, "process_weights_after_loading"):
