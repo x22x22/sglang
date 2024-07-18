@@ -348,7 +348,9 @@ class LlamaForCausalLM(nn.Module):
                     continue
                 param = params_dict[name]
                 weight_loader = param.weight_loader
+                print("param1", name, param.__class__.__name__)
                 weight_loader(param, loaded_weight, shard_id)
+                print("after load1", param.data, param.data.dtype)
                 break
             else:
                 # Skip loading extra bias for GPTQ models.
@@ -358,7 +360,9 @@ class LlamaForCausalLM(nn.Module):
                     return
                 param = params_dict[name]
                 weight_loader = getattr(param, "weight_loader", default_weight_loader)
+                print("param", name, param.__class__.__name__)
                 weight_loader(param, loaded_weight)
+                print("after load", param.data, param.data.dtype)
 
         if name is None or loaded_weight is None:
             if get_tensor_model_parallel_rank() == 0:

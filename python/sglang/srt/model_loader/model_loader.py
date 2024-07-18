@@ -199,6 +199,7 @@ class ModelLoader:
             def apply_quant_method(module):
                 quant_method = getattr(module, "quant_method", None)
                 if quant_method is not None:
+                    print("before apply quant", module.weight, module.weight.dtype)
                     quant_method.process_weights_after_loading(module)
                 # FIXME: Remove this after Mixtral is updated
                 # to use quant_method.
@@ -206,11 +207,10 @@ class ModelLoader:
                     module.process_weights_after_loading()
             
             for name, loaded_weight in weights:
-                print(name)
                 module_name = model.get_module_name(name)[:-len(".weight")]
-                # modules[module_name].to_empty(device="cuda")
                 model.load_weights(None, name, loaded_weight)
-                apply_quant_method(module)
+                print("apply quant to", module_name)
+                apply_quant_method(modules[module_name])
 
         return model.eval()
 

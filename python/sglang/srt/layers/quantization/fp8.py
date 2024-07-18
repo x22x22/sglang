@@ -349,7 +349,6 @@ class Fp8LinearMethod(LinearMethodBase):
             # If static, layer.input_scale is scalar and x_scale is input_scale
 
             if bias is None and self.cutlass_fp8_supported:
-                # print(layer.input_scale)
                 qinput, x_scale = ops.scaled_fp8_quant(x, layer.input_scale)
 
                 # Fused GEMM_DQ
