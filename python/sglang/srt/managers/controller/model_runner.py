@@ -166,6 +166,7 @@ class ModelRunner:
 
     def init_memory_pool(self, total_gpu_memory):
         self.max_total_num_tokens = self.profile_max_num_token(total_gpu_memory)
+        print("total num tokens", self.max_total_num_tokens)
 
         if self.max_total_num_tokens <= 0:
             raise RuntimeError(
@@ -246,7 +247,16 @@ class ModelRunner:
         self.cuda_graph_runner = CudaGraphRunner(
             self, max_batch_size_to_capture=max(batch_size_list)
         )
-        self.cuda_graph_runner.capture(batch_size_list)
+        logger.info(f"Capture for batch sizes {batch_size_list}")
+        try:
+            self.cuda_graph_runner.capture(batch_size_list)
+        except:
+            raise Exception(
+                f"Capture cuda graph failed. Possible solutions:\n"
+                f"1. disable cuda graph by --disable-cuda-graph\n"
+                f"2. set --mem-fraction-static to a smaller value\n"
+                f"Open an issue on GitHub with reproducible scripts if you need help.\n"
+            )
 
     @torch.inference_mode()
     def forward_decode(self, batch: Batch):
