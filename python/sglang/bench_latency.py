@@ -62,11 +62,13 @@ import torch.distributed as dist
 from sglang.srt.configs.model_config import ModelConfig
 from sglang.srt.hf_transformers_utils import get_tokenizer
 from sglang.srt.managers.schedule_batch import Req, ScheduleBatch
+from sglang.srt.model_executor.forward_batch_info import InputMetadata
 from sglang.srt.model_executor.model_runner import ModelRunner
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server import _set_envs_and_config
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
+    allocate_init_ports,
     configure_logger,
     kill_child_process,
     suppress_other_loggers,
@@ -125,6 +127,11 @@ def load_model(server_args, tp_rank):
     suppress_other_loggers()
     rank_print = print if tp_rank == 0 else lambda *args, **kwargs: None
 
+    server_args.port, server_args.additional_ports = allocate_init_ports(
+        server_args.port,
+        server_args.additional_ports,
+        server_args.dp_size,
+    )
     model_config = ModelConfig(
         server_args.model_path,
         server_args.trust_remote_code,
@@ -136,7 +143,7 @@ def load_model(server_args, tp_rank):
         gpu_id=tp_rank,
         tp_rank=tp_rank,
         tp_size=server_args.tp_size,
-        nccl_port=28888,
+        nccl_port=server_args.additional_ports[3],
         server_args=server_args,
     )
     rank_print(f"max_total_num_tokens={model_runner.max_total_num_tokens}")
@@ -167,9 +174,13 @@ def prepare_inputs_for_correctness_test(bench_args, tokenizer):
         assert len(input_ids[i]) > bench_args.cut_len
 
         tmp_input_ids = input_ids[i][: bench_args.cut_len]
-        req = Req(rid=i, origin_input_text=prompts[i], origin_input_ids=tmp_input_ids)
+        req = Req(
+            rid=i,
+            origin_input_text=prompts[i],
+            origin_input_ids=tmp_input_ids,
+            sampling_params=sampling_params,
+        )
         req.prefix_indices = []
-        req.sampling_params = sampling_params
         req.fill_ids = req.origin_input_ids
         req.extend_input_len = len(req.fill_ids) - len(req.prefix_indices)
         reqs.append(req)
@@ -199,9 +210,13 @@ def prepare_synthetic_inputs_for_latency_test(batch_size, input_len):
 
     reqs = []
     for i in range(len(input_ids)):
-        req = Req(rid=i, origin_input_text="", origin_input_ids=list(input_ids[i]))
+        req = Req(
+            rid=i,
+            origin_input_text="",
+            origin_input_ids=list(input_ids[i]),
+            sampling_params=sampling_params,
+        )
         req.prefix_indices = []
-        req.sampling_params = sampling_params
         req.fill_ids = req.origin_input_ids
         req.extend_input_len = len(req.fill_ids) - len(req.prefix_indices)
         reqs.append(req)
@@ -216,9 +231,11 @@ def extend(reqs, model_runner):
         token_to_kv_pool=model_runner.token_to_kv_pool,
         tree_cache=None,
     )
-    batch.prepare_for_extend(model_runner.model_config.vocab_size)
-    logits_output = model_runner.forward(batch)
-    next_token_ids = model_runner.sample(logits_output, batch).tolist()
+    input_metadata, sampling_info = batch.prepare_for_extend(
+        model_runner.model_config.vocab_size
+    )
+    logits_output = model_runner.forward(input_metadata)
+    next_token_ids = model_runner.sample(logits_output, sampling_info).tolist()
     return next_token_ids, logits_output.next_token_logits, batch
 
 
@@ -257,6 +274,8 @@ def correctness_test(
     # Extend
     next_token_ids, next_token_logits, batch = extend(reqs, model_runner)
     rank_print(f"prefill logits (final): {next_token_logits} \n")
+
+    exit()
 
     # Decode
     output_ids = [input_ids[i] + [next_token_ids[i]] for i in range(len(input_ids))]

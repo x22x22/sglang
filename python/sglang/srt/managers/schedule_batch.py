@@ -29,7 +29,7 @@ from sglang.srt.constrained.jump_forward import JumpForwardMap
 from sglang.srt.mem_cache.base_prefix_cache import BasePrefixCache
 from sglang.srt.mem_cache.chunk_cache import ChunkCache
 from sglang.srt.mem_cache.memory_pool import BaseTokenToKVPool, ReqToTokenPool
-from sglang.srt.model_executor.forward_batch_info import ForwardMode
+from sglang.srt.model_executor.forward_batch_info import ForwardMode, InputMetadata
 from sglang.srt.sampling.sampling_batch_info import SamplingBatchInfo
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import ServerArgs
@@ -388,27 +388,23 @@ class ScheduleBatch:
     req_to_token_pool: ReqToTokenPool
     token_to_kv_pool: BaseTokenToKVPool
     tree_cache: BasePrefixCache
-
     forward_mode: ForwardMode = None
-    sampling_info: SamplingBatchInfo = None
 
-    # Batched arguments to model runner
+    # Batched arguments for model runner
     input_ids: torch.Tensor = None
     req_pool_indices: torch.Tensor = None
     seq_lens: torch.Tensor = None
-    position_ids_offsets: torch.Tensor = None
     out_cache_loc: torch.Tensor = None
     extend_num_tokens: int = None
-
-    # For mixed chunekd prefill
-    prefix_lens_cpu: List[int] = None
-    running_bs: int = None
 
     # For processing logprobs
     return_logprob: bool = False
     top_logprobs_nums: List[int] = None
 
-    # Stream
+    # For mixed chunekd prefill
+    prefix_lens_cpu: List[int] = None
+
+    # For streaming
     has_stream: bool = False
 
     @classmethod
@@ -501,15 +497,17 @@ class ScheduleBatch:
             self.input_ids = torch.tensor(sum(input_ids, []), dtype=torch.int32)
             self.req_pool_indices = torch.tensor(req_pool_indices_cpu)
             self.seq_lens = torch.tensor(seq_lens, dtype=torch.int32)
-            self.position_ids_offsets = torch.zeros((bs,), dtype=torch.int64)
 
-        self.extend_num_tokens = extend_num_tokens
         self.out_cache_loc = out_cache_loc
-        self.top_logprobs_nums = [r.top_logprobs_num for r in reqs]
-        self.prefix_lens_cpu = [len(r.prefix_indices) for r in reqs]
+        self.extend_num_tokens = extend_num_tokens
         self.extend_lens_cpu = [r.extend_input_len for r in reqs]
         self.extend_logprob_start_lens_cpu = [r.extend_logprob_start_len for r in reqs]
-        self.sampling_info = SamplingBatchInfo.from_schedule_batch(self, vocab_size)
+        self.prefix_lens_cpu = [len(r.prefix_indices) for r in reqs]
+
+        # Extract InputMetadata and SamplingBatchInfo
+        input_metadata = InputMetadata.from_schedule_batch(self)
+        sampling_info = SamplingBatchInfo.from_schedule_batch(self, vocab_size)
+        return input_metadata, sampling_info
 
     def mix_with_running(self, running_batch: "ScheduleBatch"):
         self.forward_mode = ForwardMode.MIXED

@@ -479,33 +479,27 @@ class ModelRunner:
             batch.input_ids, input_metadata.positions, input_metadata
         )
 
-    def forward_extend(self, batch: ScheduleBatch):
-        input_metadata = InputMetadata.from_schedule_batch(self, batch)
-        if self.server_args.lora_paths is not None:
-            self.lora_manager.prepare_lora_batch(batch, input_metadata.extend_seq_lens)
-
+    def forward_extend(self, input_metadata: InputMetadata):
         if self.is_generation:
             return self.model.forward(
-                batch.input_ids, input_metadata.positions, input_metadata
+                input_metadata.input_ids, input_metadata.positions, input_metadata
             )
         else:
             # Only embedding models have get_embedding parameter
             return self.model.forward(
-                batch.input_ids,
+                input_metadata.input_ids,
                 input_metadata.positions,
                 input_metadata,
                 get_embedding=True,
             )
 
-    def forward(self, batch: ScheduleBatch) -> Tuple[LogitsProcessorOutput]:
-        assert batch.forward_mode is not None
-
-        if batch.forward_mode.is_decode():
-            return self.forward_decode(batch)
-        elif batch.forward_mode.is_extend():
-            return self.forward_extend(batch)
+    def forward(self, input_metadata: InputMetadata) -> Tuple[LogitsProcessorOutput]:
+        if input_metadata.forward_mode.is_decode():
+            return self.forward_decode(input_metadata)
+        elif input_metadata.forward_mode.is_extend():
+            return self.forward_extend(input_metadata)
         else:
-            raise ValueError(f"Invaid forward mode: {batch.forward_mode}")
+            raise ValueError(f"Invaid forward mode: {input_metadata.forward_mode}")
 
     def _apply_logits_bias(
         self, logits: torch.Tensor, sampling_info: SamplingBatchInfo
@@ -533,17 +527,15 @@ class ModelRunner:
         return logits
 
     def sample(
-        self, logits_output: LogitsProcessorOutput, batch: ScheduleBatch
+        self, logits_output: LogitsProcessorOutput, sampling_info: SamplingBatchInfo
     ) -> torch.Tensor:
         # Put CPU-heavy tasks here. They will be overlapped with the forward pass.
-        batch.sampling_info.update_regex_vocab_mask(batch)
-        batch.sampling_info.update_penalties()
-        logits = self._apply_logits_bias(
-            logits_output.next_token_logits, batch.sampling_info
-        )
+        # sampling_info.update_regex_vocab_mask(batch)
+        sampling_info.update_penalties()
+        logits = self._apply_logits_bias(logits_output.next_token_logits, sampling_info)
 
         # Sample the next tokens.
-        next_token_ids = self.sampler(logits, batch.sampling_info)
+        next_token_ids = self.sampler(logits, sampling_info)
         return next_token_ids
 
 

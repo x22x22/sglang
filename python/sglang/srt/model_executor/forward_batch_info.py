@@ -61,9 +61,6 @@ class InputMetadata:
     batch_size: int
     req_pool_indices: torch.Tensor
     seq_lens: torch.Tensor
-    req_to_token_pool: ReqToTokenPool
-    token_to_kv_pool: BaseTokenToKVPool
-    attn_backend: AttentionBackend
 
     # Output location of the KV cache
     out_cache_loc: torch.Tensor
@@ -86,61 +83,14 @@ class InputMetadata:
     # For multimodal
     image_inputs: List[ImageInputs] = None
 
-    def init_multimuldal_info(self, batch: ScheduleBatch):
-        self.image_inputs = [r.image_inputs for r in batch.reqs]
-
-    def compute_positions(self, batch: ScheduleBatch):
-        if self.forward_mode.is_decode():
-            if True:
-                self.positions = self.seq_lens - 1
-            else:
-                # Deprecated
-                self.positions = (self.seq_lens - 1) + batch.position_ids_offsets
-        else:
-            if True:
-                self.positions = torch.tensor(
-                    np.concatenate(
-                        [
-                            np.arange(batch.prefix_lens_cpu[i], len(req.fill_ids))
-                            for i, req in enumerate(batch.reqs)
-                        ],
-                        axis=0,
-                    ),
-                    device="cuda",
-                )
-            else:
-                # Deprecated
-                position_ids_offsets_cpu = batch.position_ids_offsets.cpu().numpy()
-                self.positions = torch.tensor(
-                    np.concatenate(
-                        [
-                            np.arange(
-                                batch.prefix_lens_cpu[i] + position_ids_offsets_cpu[i],
-                                len(req.fill_ids) + position_ids_offsets_cpu[i],
-                            )
-                            for i, req in enumerate(batch.reqs)
-                        ],
-                        axis=0,
-                    ),
-                    device="cuda",
-                )
-
-        # Positions should be in long type
-        self.positions = self.positions.to(torch.int64)
-
-    def compute_extend_infos(self, batch: ScheduleBatch):
-        self.extend_seq_lens = torch.tensor(batch.extend_lens_cpu, device="cuda")
-        self.extend_prefix_lens = torch.tensor(batch.prefix_lens_cpu, device="cuda")
-        self.extend_start_loc = torch.zeros_like(self.extend_seq_lens)
-        self.extend_start_loc[1:] = torch.cumsum(self.extend_seq_lens[:-1], dim=0)
-        self.extend_no_prefix = all(x == 0 for x in batch.prefix_lens_cpu)
-        self.extend_seq_lens_cpu = batch.extend_lens_cpu
-        self.extend_logprob_start_lens_cpu = batch.extend_logprob_start_lens_cpu
+    # For attention
+    req_to_token_pool: ReqToTokenPool = None
+    token_to_kv_pool: BaseTokenToKVPool = None
+    attn_backend: AttentionBackend = None
 
     @classmethod
     def from_schedule_batch(
         cls,
-        model_runner: "ModelRunner",
         batch: ScheduleBatch,
     ):
         ret = cls(
@@ -148,20 +98,32 @@ class InputMetadata:
             batch_size=batch.batch_size(),
             req_pool_indices=batch.req_pool_indices,
             seq_lens=batch.seq_lens,
-            req_to_token_pool=model_runner.req_to_token_pool,
-            token_to_kv_pool=model_runner.token_to_kv_pool,
-            attn_backend=model_runner.attn_backend,
             out_cache_loc=batch.out_cache_loc,
             return_logprob=batch.return_logprob,
             top_logprobs_nums=batch.top_logprobs_nums,
         )
 
-        ret.compute_positions(batch)
+        if ret.forward_mode.is_decode():
+            ret.positions = (ret.seq_lens - 1).to(torch.int64)
+        else:
+            ret.positions = torch.tensor(
+                np.concatenate(
+                    [
+                        np.arange(batch.prefix_lens_cpu[i], len(req.fill_ids))
+                        for i, req in enumerate(batch.reqs)
+                    ],
+                    axis=0,
+                ),
+                device="cuda",
+            ).to(torch.int64)
 
-        if not batch.forward_mode.is_decode():
-            ret.init_multimuldal_info(batch)
-            ret.compute_extend_infos(batch)
-
-        model_runner.attn_backend.init_forward_metadata(batch, ret)
+            ret.image_inputs = [r.image_inputs for r in batch.reqs]
+            ret.extend_seq_lens = torch.tensor(batch.extend_lens_cpu, device="cuda")
+            ret.extend_prefix_lens = torch.tensor(batch.prefix_lens_cpu, device="cuda")
+            ret.extend_start_loc = torch.zeros_like(ret.extend_seq_lens)
+            ret.extend_start_loc[1:] = torch.cumsum(ret.extend_seq_lens[:-1], dim=0)
+            ret.extend_no_prefix = all(x == 0 for x in batch.prefix_lens_cpu)
+            ret.extend_seq_lens_cpu = batch.extend_lens_cpu
+            ret.extend_logprob_start_lens_cpu = batch.extend_logprob_start_lens_cpu
 
         return ret
