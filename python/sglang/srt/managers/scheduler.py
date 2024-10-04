@@ -348,10 +348,10 @@ class Scheduler:
             )
             exit(1) if crash_on_warning else None
 
-        if len(self.req_to_token_pool.free_slots) != self.req_to_token_pool.size:
+        if self.req_to_token_pool.available_size() != self.req_to_token_pool.size:
             warnings.warn(
                 "Warning: "
-                f"available req slots={len(self.req_to_token_pool.free_slots)}, "
+                f"available req slots={self.req_to_token_pool.available_size()}, "
                 f"total slots={self.req_to_token_pool.size}\n"
                 "Memory pool leak detected!"
             )

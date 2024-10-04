@@ -36,6 +36,9 @@ class ReqToTokenPool:
             (size, max_context_len), dtype=torch.int32, device=device
         )
 
+    def available_size(self):
+        return len(self.free_slots)
+
     def alloc(self, need_size: int) -> List[int]:
         if need_size > len(self.free_slots):
             return None
@@ -53,6 +56,9 @@ class ReqToTokenPool:
 
     def clear(self):
         self.free_slots = list(range(self.size))
+
+    def write(self, indices, values):
+        self.req_to_token[indices] = values
 
 
 class BaseTokenToKVPool:
