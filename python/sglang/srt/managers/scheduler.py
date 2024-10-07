@@ -234,7 +234,10 @@ class Scheduler:
             recv_reqs = self.recv_requests()
             self.process_input_requests(recv_reqs)
 
-            self.run_step()
+            batch = self.get_next_batch_to_run()
+            if batch:
+                result = self.run_batch(batch)
+                self.process_batch_result(batch, result)
 
             self.send_results()
 
@@ -405,27 +408,14 @@ class Scheduler:
             )
             exit(1) if crash_on_warning else None
 
-    def run_step(self):
+    def get_next_batch_to_run(self):
         new_batch = self.get_new_batch_prefill()
         if new_batch is not None:
-            # Run a new prefill batch
-            result = self.run_batch(new_batch)
-            self.process_batch_result(new_batch, result)
+            return new_batch
         else:
             if self.running_batch is not None:
-                # Run a few decode batches continuously for reducing overhead
-                for _ in range(global_config.num_continue_decode_steps):
-                    batch = self.get_new_batch_decode()
-
-                    if batch:
-                        result = self.run_batch(batch)
-                        self.process_batch_result(batch, result)
-
-                    if self.running_batch is None:
-                        break
-
-                    if self.out_pyobjs and self.running_batch.has_stream:
-                        break
+                batch = self.get_new_batch_decode()
+                return batch
             else:
                 self.check_memory()
                 self.new_token_ratio = global_config.init_new_token_ratio
